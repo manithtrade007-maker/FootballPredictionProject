@@ -6,7 +6,11 @@
       "Bash(curl -s \"http://localhost:8000/fixtures/upcoming?days=1\")",
       "Bash(.venv/bin/python -c ' *)",
       "Bash(curl -s -X POST http://localhost:8000/sync/scores)",
-      "Bash(curl -s \"http://localhost:8000/fixtures/upcoming?days=14\")"
+      "Bash(curl -s \"http://localhost:8000/fixtures/upcoming?days=14\")",
+      "Bash(curl -s \"http://localhost:8000/fixtures/1\")",
+      "Bash(pkill -f \"uvicorn main:app\")",
+      "Bash(.venv/bin/uvicorn main:app --port 8000)",
+      "Bash(grep -v \"^$\")"
     ]
   }
 }

@@ -89,15 +89,24 @@ def predict(
 
 
 def _asian_handicap(matrix: np.ndarray, home_xg: float, away_xg: float) -> dict:
-    """Calculate Asian Handicap probabilities for common lines."""
-    lines = [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5]
+    """
+    Calculate Asian Handicap probabilities for a wide range of lines.
+    Line is expressed as the HOME team's handicap (negative = gives goals, positive = receives goals).
+
+    Half-line (±0.5 step): no push possible — clean win/loss split.
+    Whole-line (±1.0 step): push when margin equals handicap exactly.
+    Quarter-line (±0.25 step / split bet): half stake on each adjacent half-line.
+    """
+    # Full-step and half-step lines (-3.5 to +3.5)
+    half_lines = [-3.5, -3.0, -2.5, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
     result = {}
 
-    for line in lines:
+    # Pre-compute raw probabilities for every half-step line
+    raw: dict[float, dict] = {}
+    for line in half_lines:
         home_cover = 0.0
         push = 0.0
         away_cover = 0.0
-
         for h in range(MAX_GOALS):
             for a in range(MAX_GOALS):
                 diff = h - a + line
@@ -108,11 +117,35 @@ def _asian_handicap(matrix: np.ndarray, home_xg: float, away_xg: float) -> dict:
                     push += prob
                 else:
                     away_cover += prob
-
-        result[str(line)] = {
+        raw[line] = {
             "home_cover": round(home_cover, 4),
             "push": round(push, 4),
             "away_cover": round(away_cover, 4),
+        }
+        result[str(line)] = raw[line]
+
+    # Quarter-line (split) handicaps: -0.75, -0.25, +0.25, +0.75 and larger
+    quarter_lines = [-2.75, -2.25, -1.75, -1.25, -0.75, -0.25, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75]
+    for qline in quarter_lines:
+        # Split bet: half stake on floor half-line, half stake on ceil half-line
+        low = round(qline - 0.25, 2)   # e.g. -0.75 → low=-1.0
+        high = round(qline + 0.25, 2)  # e.g. -0.75 → high=-0.5
+        low_data = raw.get(low, {"home_cover": 0, "push": 0, "away_cover": 0})
+        high_data = raw.get(high, {"home_cover": 0, "push": 0, "away_cover": 0})
+
+        # For split bets, there is no push — push on one half becomes a half-win/half-loss
+        # effective_home = 0.5*home_cover(low) + 0.5*home_cover(high) + 0.5*push(low or high if applicable)
+        # Because: if low pushes, you get half refunded → counts as 0 EV on that half
+        # Represent as effective probabilities (push is absorbed proportionally):
+        eff_home = round(0.5 * (low_data["home_cover"] + low_data["push"]) +
+                         0.5 * high_data["home_cover"], 4)
+        eff_away = round(0.5 * low_data["away_cover"] +
+                         0.5 * (high_data["away_cover"] + high_data["push"]), 4)
+
+        result[str(qline)] = {
+            "home_cover": eff_home,
+            "push": 0.0,  # no push on split bets
+            "away_cover": eff_away,
         }
 
     return result

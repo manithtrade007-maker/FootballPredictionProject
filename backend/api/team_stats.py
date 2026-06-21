@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -28,6 +29,7 @@ async def sync_team_stats(db: AsyncSession = Depends(get_db)):
     skipped_already_real = 0
     real_stats_count = 0
     rate_limited_at: str | None = None
+    rate_limit_reason: str = ""
 
     for team in teams:
         # Skip if already has real stats from a previous run
@@ -44,9 +46,12 @@ async def sync_team_stats(db: AsyncSession = Depends(get_db)):
 
         try:
             attack, defence, source = await get_real_ratings(team.name, api_id)
-        except RateLimitError:
+        except RateLimitError as e:
             rate_limited_at = team.name
+            rate_limit_reason = str(e)
             break  # Stop — save what we have so far
+
+        await asyncio.sleep(2.0)  # stay under per-minute rate limit
 
         if source != "hardcoded":
             real_stats_count += 1
@@ -96,11 +101,19 @@ async def sync_team_stats(db: AsyncSession = Depends(get_db)):
     await db.commit()
 
     if rate_limited_at:
-        msg = (
-            f"API daily limit reached at '{rate_limited_at}'. "
-            f"Got real stats for {real_stats_count} teams. "
-            f"Run again tomorrow to continue ({skipped_already_real} already had real stats)."
-        )
+        if "suspend" in rate_limit_reason.lower():
+            msg = (
+                f"API account suspended at '{rate_limited_at}'. "
+                f"Check https://dashboard.api-football.com to activate your account. "
+                f"Got real stats for {real_stats_count} teams this run "
+                f"({skipped_already_real} already had real stats — those are safe)."
+            )
+        else:
+            msg = (
+                f"API daily limit reached at '{rate_limited_at}'. "
+                f"Got real stats for {real_stats_count} teams. "
+                f"Run again tomorrow to continue ({skipped_already_real} already had real stats)."
+            )
     else:
         msg = (
             f"Done: {real_stats_count} teams updated with real stats, "

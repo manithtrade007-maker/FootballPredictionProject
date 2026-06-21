@@ -85,9 +85,31 @@ def _get_checks(prediction: dict, odds: dict, bet_type: str) -> list[tuple]:
         line = odds.get("line")
         if line is None:
             return []
-        ah_data = prediction.get("asian_handicap_data", {}).get(str(line), {})
+        ah_data = prediction.get("asian_handicap_data", {}).get(str(float(line)), {})
+        if not ah_data:
+            # Try rounding to nearest 0.25
+            rounded = round(line * 4) / 4
+            ah_data = prediction.get("asian_handicap_data", {}).get(str(rounded), {})
+        if not ah_data:
+            return []
+
+        home_cover = ah_data.get("home_cover", 0)
+        away_cover = ah_data.get("away_cover", 0)
+        push = ah_data.get("push", 0)
+
+        # For whole-line AH (push > 0), effective probability adjusts for stake refund:
+        # EV of home bet at `odds` = home_cover*(odds-1) - away_cover*1 + push*0
+        # We express this as an effective probability for a fair-odds comparison:
+        # effective_home = home_cover + push * 0.5 (push = 50% of full cover)
+        if push > 0:
+            eff_home = home_cover + push * 0.5
+            eff_away = away_cover + push * 0.5
+        else:
+            eff_home = home_cover
+            eff_away = away_cover
+
         return [
-            (f"Home {line:+}", ah_data.get("home_cover"), odds.get("home_odds")),
-            (f"Away {-line:+}", ah_data.get("away_cover"), odds.get("away_odds")),
+            (f"Home AH {line:+.1f}", eff_home, odds.get("home_odds")),
+            (f"Away AH {-line:+.1f}", eff_away, odds.get("away_odds")),
         ]
     return []

@@ -5,7 +5,7 @@ from config import settings
 class OddsAPIClient:
     SPORT_KEY = "soccer_fifa_world_cup"
     REGIONS = "eu"
-    MARKETS = "h2h,totals"
+    MARKETS = "h2h,totals,spreads"
 
     def __init__(self):
         self.base_url = settings.odds_api_base_url
@@ -78,6 +78,22 @@ class OddsAPIClient:
                         "away_odds": outcomes.get("No"),
                         "line": None,
                     })
+                elif key == "spreads":
+                    # AH/spreads: outcomes have a "point" field
+                    # point for home team is negative if home is favorite
+                    home_outcome = next((o for o in market.get("outcomes", []) if o["name"] == home_team), None)
+                    away_outcome = next((o for o in market.get("outcomes", []) if o["name"] == away_team), None)
+                    if home_outcome and away_outcome:
+                        # Store line from HOME team's perspective (negative = home gives goals)
+                        home_line = home_outcome.get("point", 0)
+                        results.append({
+                            "bookmaker": name,
+                            "bet_type": "AH",
+                            "home_odds": home_outcome["price"],
+                            "draw_odds": None,
+                            "away_odds": away_outcome["price"],
+                            "line": home_line,
+                        })
 
         return results
 

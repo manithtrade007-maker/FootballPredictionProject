@@ -127,45 +127,70 @@ WC2022_SEASON = 2022
 
 
 class RateLimitError(Exception):
-    """Raised when the API daily request limit is hit."""
+    """Raised when the API daily request limit is hit (unrecoverable today)."""
     pass
+
+
+async def _api_get(params: dict, retries: int = 3) -> dict:
+    """Make an API-Football GET request with per-minute rate limit retry."""
+    import asyncio
+    await asyncio.sleep(6)  # free plan: 10 req/min → 6s gap keeps us safely under
+    for attempt in range(retries):
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(
+                f"{settings.api_football_base_url}/teams/statistics",
+                headers={"x-apisports-key": settings.api_football_key},
+                params=params,
+            )
+            data = r.json()
+            errors = data.get("errors", {})
+            if not errors:
+                return data
+
+            if isinstance(errors, dict):
+                msg = errors.get("rateLimit", errors.get("access", ""))
+            else:
+                msg = str(errors)
+            if "suspend" in msg.lower():
+                raise RateLimitError(f"Account suspended: {msg}")
+            if "daily" in msg.lower() or "day" in msg.lower():
+                raise RateLimitError(f"Daily limit reached: {msg}")
+            if "minute" in msg.lower() or "per-minute" in msg.lower():
+                wait = 15 * (attempt + 1)
+                print(f"    Per-minute limit hit, waiting {wait}s...")
+                await asyncio.sleep(wait)
+                continue
+            # Other error (e.g. season not on free plan) — return as-is
+            return data
+    return {}
 
 
 async def fetch_team_stats(team_id: int, league_id: int, season: int) -> dict | None:
     """Fetch team stats from API-Football for a given league/season.
     Raises RateLimitError if the daily limit is reached.
+    Retries automatically on per-minute rate limit.
     """
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get(
-                f"{settings.api_football_base_url}/teams/statistics",
-                headers={"x-apisports-key": settings.api_football_key},
-                params={"team": team_id, "league": league_id, "season": season},
-            )
-            data = r.json()
+        data = await _api_get({"team": team_id, "league": league_id, "season": season})
 
-            errors = data.get("errors", {})
-            if errors:
-                if isinstance(errors, dict) and errors.get("rateLimit"):
-                    raise RateLimitError(errors["rateLimit"])
-                # Other errors (e.g. season not on free plan) — just return None
-                return None
+        if data.get("errors"):
+            return None  # season blocked or other non-fatal error
 
-            response = data.get("response", {})
-            if not response:
-                return None
+        response = data.get("response", {})
+        if not response:
+            return None
 
-            goals = response.get("goals", {})
-            fixtures = response.get("fixtures", {})
-            played = fixtures.get("played", {}).get("total", 0)
-            if not played:
-                return None
+        goals = response.get("goals", {})
+        fixtures = response.get("fixtures", {})
+        played = fixtures.get("played", {}).get("total", 0)
+        if not played:
+            return None
 
-            scored = goals.get("for", {}).get("total", {}).get("total", 0)
-            conceded = goals.get("against", {}).get("total", {}).get("total", 0)
-            return {"played": played, "scored": scored, "conceded": conceded}
+        scored = goals.get("for", {}).get("total", {}).get("total", 0)
+        conceded = goals.get("against", {}).get("total", {}).get("total", 0)
+        return {"played": played, "scored": scored, "conceded": conceded}
     except RateLimitError:
-        raise  # propagate so callers can stop processing
+        raise
     except Exception as e:
         print(f"    Exception in fetch_team_stats({team_id}, {league_id}, {season}): {type(e).__name__}: {e}")
         return None
@@ -183,8 +208,12 @@ async def search_team_id(team_name: str) -> int | None:
             params={"search": team_name},
         )
         data = r.json()
-        if data.get("errors"):
-            print(f"    API rate limit or error searching '{team_name}': {data['errors']}")
+        errors = data.get("errors", {})
+        if errors:
+            err_str = str(errors)
+            if "suspend" in err_str.lower():
+                raise RateLimitError(f"Account suspended: {errors}")
+            print(f"    API error searching '{team_name}': {errors}")
             return None
         results = data.get("response", [])
         if results:

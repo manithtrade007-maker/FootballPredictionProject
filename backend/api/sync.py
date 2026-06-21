@@ -139,6 +139,109 @@ async def sync_odds(db: AsyncSession = Depends(get_db)):
     return SyncResponse(message="Odds synced", fixtures_synced=count)
 
 
+@router.post("/live-ratings", response_model=SyncResponse)
+async def sync_live_ratings(db: AsyncSession = Depends(get_db)):
+    """
+    Derive attack/defence ratings from actual WC2026 match results already in the DB.
+    Uses a 3-game Bayesian prior so small samples don't produce extreme values.
+    Only updates teams that have played; others keep their existing ratings.
+    """
+    from collections import defaultdict
+    from services.predictor import predict
+    from services.value_bets import evaluate_bets
+    from db.crud import save_prediction, save_value_bets
+
+    # Load all completed fixtures
+    ft_result = await db.execute(
+        select(Fixture).where(Fixture.status == "FT").options(
+            selectinload(Fixture.home_team),
+            selectinload(Fixture.away_team),
+        )
+    )
+    finished = [
+        f for f in ft_result.scalars().all()
+        if f.home_goals is not None and f.away_goals is not None
+    ]
+
+    if not finished:
+        return SyncResponse(message="No completed fixtures yet. Run Sync Scores first.", fixtures_synced=0)
+
+    # Compute actual WC2026 average goals per team per game
+    total_goals = sum(f.home_goals + f.away_goals for f in finished)
+    wc_avg = total_goals / (2 * len(finished))
+
+    # Accumulate goals scored/conceded per team ID
+    stats: dict = defaultdict(lambda: {"scored": 0, "conceded": 0, "played": 0})
+    for f in finished:
+        stats[f.home_team_id]["scored"] += f.home_goals
+        stats[f.home_team_id]["conceded"] += f.away_goals
+        stats[f.home_team_id]["played"] += 1
+        stats[f.away_team_id]["scored"] += f.away_goals
+        stats[f.away_team_id]["conceded"] += f.home_goals
+        stats[f.away_team_id]["played"] += 1
+
+    # Bayesian shrinkage: 3-game prior toward WC average keeps single-game samples sane
+    PRIOR_GAMES = 3
+    all_teams_result = await db.execute(select(Team))
+    teams = all_teams_result.scalars().all()
+
+    updated = 0
+    for team in teams:
+        s = stats.get(team.id)
+        if not s or s["played"] == 0:
+            continue
+        n = s["played"]
+        blended_scored = (wc_avg * PRIOR_GAMES + s["scored"]) / (PRIOR_GAMES + n)
+        blended_conceded = (wc_avg * PRIOR_GAMES + s["conceded"]) / (PRIOR_GAMES + n)
+
+        team.attack_rating = round(max(0.3, blended_scored / wc_avg), 3)
+        team.defence_rating = round(max(0.2, blended_conceded / wc_avg), 3)
+        team.stats_source = f"wc2026_live ({n} games)"
+        updated += 1
+        print(f"  {team.name}: attack={team.attack_rating}, defence={team.defence_rating} [{n} WC games]")
+
+    await db.flush()
+
+    # Re-run predictions for all fixtures with updated ratings
+    all_fixtures_result = await db.execute(
+        select(Fixture).options(
+            selectinload(Fixture.home_team),
+            selectinload(Fixture.away_team),
+            selectinload(Fixture.odds),
+        )
+    )
+    for fixture in all_fixtures_result.scalars().all():
+        pred = predict(
+            fixture.home_team.attack_rating,
+            fixture.home_team.defence_rating,
+            fixture.away_team.attack_rating,
+            fixture.away_team.defence_rating,
+        )
+        await save_prediction(db, fixture.id, pred)
+        if fixture.odds:
+            odds_list = [
+                {
+                    "bet_type": o.bet_type,
+                    "bookmaker": o.bookmaker,
+                    "home_odds": o.home_odds,
+                    "draw_odds": o.draw_odds,
+                    "away_odds": o.away_odds,
+                    "line": o.line,
+                }
+                for o in fixture.odds
+            ]
+            await save_value_bets(db, fixture.id, evaluate_bets(pred, odds_list))
+
+    await db.commit()
+    return SyncResponse(
+        message=(
+            f"Ratings updated from WC2026 results: {updated} teams calibrated. "
+            f"WC avg: {wc_avg:.2f} goals/team/game across {len(finished)} matches."
+        ),
+        fixtures_synced=len(finished),
+    )
+
+
 @router.post("/scores", response_model=SyncResponse)
 async def sync_scores(db: AsyncSession = Depends(get_db)):
     """
