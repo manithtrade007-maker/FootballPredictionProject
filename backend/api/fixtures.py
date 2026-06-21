@@ -343,6 +343,24 @@ async def ai_prediction(fixture_id: int, db: AsyncSession = Depends(get_db)):
             "money_on": money_on,
         })
 
+    # Build value bets list for the prompt
+    from db.crud import get_value_bets_for_fixture
+    vb_rows = await get_value_bets_for_fixture(db, fixture_id)
+    value_bets_list = [
+        {
+            "bet_type": vb.bet_type,
+            "selection": vb.selection,
+            "our_probability": vb.our_probability,
+            "implied_probability": vb.implied_probability,
+            "edge": vb.edge,
+            "bookmaker_odds": vb.bookmaker_odds,
+            "bookmaker": vb.bookmaker,
+            "kelly_fraction": vb.kelly_fraction,
+        }
+        for vb in (vb_rows or [])
+        if vb.is_value
+    ]
+
     kickoff_str = fixture.kickoff.strftime("%d %b %Y %H:%M UTC")
     text = await generate_prediction(
         home_team=fixture.home_team.name,
@@ -351,7 +369,7 @@ async def ai_prediction(fixture_id: int, db: AsyncSession = Depends(get_db)):
         kickoff=kickoff_str,
         prediction=pred_dict,
         odds_summary={"markets": markets_out},
-        market_trends={},
+        value_bets=value_bets_list,
     )
     return {"analysis": text}
 

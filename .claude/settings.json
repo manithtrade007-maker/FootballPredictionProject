@@ -26,7 +26,25 @@
       "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem/frontend diff --cached --stat)",
       "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem/frontend commit -m ' *)",
       "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem add frontend .claude/settings.json)",
-      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem commit -m ' *)"
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem commit -m ' *)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem/frontend push origin main)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem push origin main)",
+      "Bash(git reset *)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem rm --cached backend/.env backend/football.db)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem diff --cached --stat)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem reset HEAD backend/.env backend/football.db)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem add .gitignore)",
+      "Bash(curl -s http://localhost:8000/fixtures/upcoming?days=30)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\([\\(f['id'], f['home_team']['name'], f['away_team']['name']\\) for f in data[:3]]\\)\")",
+      "Bash(curl -s \"http://localhost:8000/fixtures/37/ai-prediction\")",
+      "Bash(curl -s \"http://localhost:8000/fixtures/1/ai-prediction\")",
+      "Bash(curl -s \"http://localhost:8000/fixtures/\")",
+      "Bash(curl -s \"http://localhost:8000/fixtures/37\")",
+      "Bash(curl -s \"http://localhost:8000/openapi.json\")",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(k\\) for k in data['paths'].keys\\(\\)]\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('analysis',''\\)[:600]\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('analysis',''\\)[:1000]\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('analysis',''\\)\\)\")"
     ]
   }
 }
