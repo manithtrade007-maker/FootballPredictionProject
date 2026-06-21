@@ -4,21 +4,35 @@ import numpy as np
 
 MAX_GOALS = 10
 
-# Average goals per match in World Cup history (used as league baseline)
-WC_AVG_GOALS_HOME = 1.36
-WC_AVG_GOALS_AWAY = 1.10
+# WC2026 neutral-venue average — no home advantage at USA/Canada/Mexico venues.
+# Both teams use the same baseline (historical WC average ≈ 1.33 goals/team/game).
+WC_NEUTRAL_AVG = 1.23
+
+# Dixon-Coles rho: corrects Poisson underestimation of 0-0, 1-0, 0-1, 1-1 scorelines.
+# Empirically fitted for football; 0.13 is the standard value from the original 1997 paper.
+DC_RHO = 0.13
 
 
 def _poisson_pmf(k: int, lam: float) -> float:
-    """Poisson probability mass function — pure Python, no scipy needed."""
     return (lam ** k) * math.exp(-lam) / math.factorial(k)
 
 
 def _goal_matrix(home_xg: float, away_xg: float) -> np.ndarray:
-    """Build a (MAX_GOALS x MAX_GOALS) joint probability matrix."""
+    """Build (MAX_GOALS x MAX_GOALS) joint probability matrix with Dixon-Coles correction."""
     home_probs = np.array([_poisson_pmf(i, home_xg) for i in range(MAX_GOALS)])
     away_probs = np.array([_poisson_pmf(i, away_xg) for i in range(MAX_GOALS)])
-    return np.outer(home_probs, away_probs)
+    matrix = np.outer(home_probs, away_probs)
+
+    # Dixon-Coles correction: fix underestimation of low-scoring scorelines
+    lam, mu, rho = home_xg, away_xg, DC_RHO
+    matrix[0, 0] *= (1 - lam * mu * rho)
+    matrix[1, 0] *= (1 + mu * rho)
+    matrix[0, 1] *= (1 + lam * rho)
+    matrix[1, 1] *= (1 - rho)
+
+    # Renormalise so probabilities still sum to 1
+    matrix /= matrix.sum()
+    return matrix
 
 
 def predict(
@@ -28,15 +42,13 @@ def predict(
     away_defence: float,
 ) -> dict:
     """
-    Poisson-based match prediction.
-
-    Attack/defence ratings are relative to WC average (1.0 = average).
-    Expected goals = attack_rating * opponent_defence_rating * league_average
+    Dixon-Coles corrected Poisson match prediction for neutral WC venues.
+    No home advantage applied — WC2026 matches are at neutral USA/Canada/Mexico venues.
     """
-    home_xg = home_attack * away_defence * WC_AVG_GOALS_HOME
-    away_xg = away_attack * home_defence * WC_AVG_GOALS_AWAY
+    # Neutral venue: both teams use the same WC baseline (no home boost)
+    home_xg = home_attack * away_defence * WC_NEUTRAL_AVG
+    away_xg = away_attack * home_defence * WC_NEUTRAL_AVG
 
-    # Clamp to sensible range
     home_xg = max(0.3, min(home_xg, 5.0))
     away_xg = max(0.3, min(away_xg, 5.0))
 
@@ -62,10 +74,9 @@ def predict(
     ))
     btts_no = 1.0 - btts_yes
 
-    # Use rounded xG as predicted score — more informative than the modal scoreline
-    predicted_home = round(home_xg)
-    predicted_away = round(away_xg)
-    predicted_score = f"{predicted_home}-{predicted_away}"
+    # Modal scoreline: the single most likely exact result from the matrix
+    modal_idx = np.unravel_index(np.argmax(matrix), matrix.shape)
+    predicted_score = f"{modal_idx[0]}-{modal_idx[1]}"
 
     max_prob = max(home_win, draw, away_win)
     confidence = round(max_prob * 100, 1)
@@ -161,7 +172,7 @@ def build_team_ratings(stats: dict) -> tuple[float, float]:
     scored = stats.get("goals_scored", WC_AVG_GOALS_HOME * played)
     conceded = stats.get("goals_conceded", WC_AVG_GOALS_AWAY * played)
 
-    attack = (scored / played) / WC_AVG_GOALS_HOME
-    defence = (conceded / played) / WC_AVG_GOALS_AWAY
+    attack = (scored / played) / WC_NEUTRAL_AVG
+    defence = (conceded / played) / WC_NEUTRAL_AVG
 
     return round(attack, 3), round(defence, 3)

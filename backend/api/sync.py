@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from db.crud import upsert_team, upsert_fixture, save_prediction, save_odds, save_value_bets
+from db.crud import upsert_team, upsert_fixture, save_prediction, save_odds, save_value_bets, snapshot_odds
 from services.odds_api import odds_client
 from services.predictor import predict
 from services.team_ratings import get_team_ratings
@@ -83,6 +83,7 @@ async def sync_fixtures(db: AsyncSession = Depends(get_db)):
         parsed_odds = odds_client.parse_odds(event)
         if parsed_odds:
             await save_odds(db, fixture.id, parsed_odds)
+            await snapshot_odds(db, fixture.id, parsed_odds)
 
             # Calculate value bets
             value_bets = evaluate_bets(pred, parsed_odds)
@@ -119,6 +120,7 @@ async def sync_odds(db: AsyncSession = Depends(get_db)):
             continue
 
         await save_odds(db, fixture.id, parsed_odds)
+        await snapshot_odds(db, fixture.id, parsed_odds)
 
         if fixture.prediction:
             pred_dict = {
@@ -137,6 +139,44 @@ async def sync_odds(db: AsyncSession = Depends(get_db)):
 
     await db.commit()
     return SyncResponse(message="Odds synced", fixtures_synced=count)
+
+
+@router.post("/recalculate", response_model=SyncResponse)
+async def recalculate_predictions(db: AsyncSession = Depends(get_db)):
+    """Re-run predictions for all fixtures using current team ratings and the latest model."""
+    fixtures_result = await db.execute(
+        select(Fixture).options(
+            selectinload(Fixture.home_team),
+            selectinload(Fixture.away_team),
+            selectinload(Fixture.odds),
+        )
+    )
+    fixtures = fixtures_result.scalars().all()
+    count = 0
+    for fixture in fixtures:
+        pred = predict(
+            fixture.home_team.attack_rating,
+            fixture.home_team.defence_rating,
+            fixture.away_team.attack_rating,
+            fixture.away_team.defence_rating,
+        )
+        await save_prediction(db, fixture.id, pred)
+        if fixture.odds:
+            odds_list = [
+                {
+                    "bet_type": o.bet_type,
+                    "bookmaker": o.bookmaker,
+                    "home_odds": o.home_odds,
+                    "draw_odds": o.draw_odds,
+                    "away_odds": o.away_odds,
+                    "line": o.line,
+                }
+                for o in fixture.odds
+            ]
+            await save_value_bets(db, fixture.id, evaluate_bets(pred, odds_list))
+        count += 1
+    await db.commit()
+    return SyncResponse(message=f"Recalculated predictions for {count} fixtures.", fixtures_synced=count)
 
 
 @router.post("/live-ratings", response_model=SyncResponse)

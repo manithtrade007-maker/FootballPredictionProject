@@ -78,6 +78,23 @@ class BettingOdds(Base):
     fixture: Mapped["Fixture"] = relationship("Fixture", back_populates="odds")
 
 
+class OddsSnapshot(Base):
+    """Point-in-time record of odds — appended every sync, never updated."""
+    __tablename__ = "odds_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fixture_id: Mapped[int] = mapped_column(ForeignKey("fixtures.id"), index=True)
+    bookmaker: Mapped[str] = mapped_column(String(50))
+    bet_type: Mapped[str] = mapped_column(String(30))
+    home_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    draw_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    away_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    line: Mapped[float | None] = mapped_column(Float, nullable=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    fixture: Mapped["Fixture"] = relationship("Fixture")
+
+
 class ValueBet(Base):
     __tablename__ = "value_bets"
 

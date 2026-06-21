@@ -3,7 +3,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from models.db_models import Team, Fixture, Prediction, BettingOdds, ValueBet
+from models.db_models import Team, Fixture, Prediction, BettingOdds, ValueBet, OddsSnapshot
 
 
 async def upsert_team(db: AsyncSession, team_data: dict) -> Team:
@@ -54,6 +54,14 @@ async def save_odds(db: AsyncSession, fixture_id: int, odds_list: list[dict]):
     await db.execute(delete(BettingOdds).where(BettingOdds.fixture_id == fixture_id))
     for o in odds_list:
         db.add(BettingOdds(fixture_id=fixture_id, **o))
+    await db.flush()
+
+
+async def snapshot_odds(db: AsyncSession, fixture_id: int, odds_list: list[dict]):
+    """Append a timestamped copy of the current odds (never overwrites — historical record)."""
+    now = datetime.utcnow()
+    for o in odds_list:
+        db.add(OddsSnapshot(fixture_id=fixture_id, captured_at=now, **o))
     await db.flush()
 
 
