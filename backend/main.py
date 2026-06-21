@@ -5,6 +5,7 @@ from database import init_db
 from api.fixtures import router as fixtures_router
 from api.sync import router as sync_router
 from api.value_bets import router as value_bets_router
+from api.team_stats import router as team_stats_router
 
 app = FastAPI(title="WC2026 Betting Assistant", version="1.0.0")
 
@@ -19,6 +20,7 @@ app.add_middleware(
 app.include_router(fixtures_router)
 app.include_router(sync_router)
 app.include_router(value_bets_router)
+app.include_router(team_stats_router)
 
 
 @app.on_event("startup")

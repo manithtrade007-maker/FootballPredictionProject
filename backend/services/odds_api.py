@@ -5,7 +5,7 @@ from config import settings
 class OddsAPIClient:
     SPORT_KEY = "soccer_fifa_world_cup"
     REGIONS = "eu"
-    MARKETS = "h2h,totals,btts"
+    MARKETS = "h2h,totals"
 
     def __init__(self):
         self.base_url = settings.odds_api_base_url

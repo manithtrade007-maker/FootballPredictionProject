@@ -12,6 +12,10 @@ class Team(Base):
     code: Mapped[str] = mapped_column(String(10))
     logo_url: Mapped[str] = mapped_column(String(255), default="")
     group: Mapped[str] = mapped_column(String(10), default="")
+    attack_rating: Mapped[float] = mapped_column(Float, default=1.0)
+    defence_rating: Mapped[float] = mapped_column(Float, default=1.0)
+    stats_source: Mapped[str] = mapped_column(String(50), default="hardcoded")
+    api_football_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
     home_fixtures: Mapped[list["Fixture"]] = relationship("Fixture", foreign_keys="Fixture.home_team_id", back_populates="home_team")
     away_fixtures: Mapped[list["Fixture"]] = relationship("Fixture", foreign_keys="Fixture.away_team_id", back_populates="away_team")

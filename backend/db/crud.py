@@ -66,10 +66,11 @@ async def save_value_bets(db: AsyncSession, fixture_id: int, bets: list[dict]):
 
 async def get_upcoming_fixtures(db: AsyncSession, days: int = 7) -> list[Fixture]:
     now = datetime.utcnow()
+    past = now - timedelta(days=7)   # include results from last 7 days
     cutoff = now + timedelta(days=days)
     result = await db.execute(
         select(Fixture)
-        .where(Fixture.kickoff >= now, Fixture.kickoff <= cutoff)
+        .where(Fixture.kickoff >= past, Fixture.kickoff <= cutoff)
         .options(
             selectinload(Fixture.home_team),
             selectinload(Fixture.away_team),

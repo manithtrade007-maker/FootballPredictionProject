@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"http://localhost:8000/fixtures/upcoming?days=7\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"http://localhost:8000/fixtures/upcoming?days=1\")",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(curl -s -X POST http://localhost:8000/sync/scores)",
+      "Bash(curl -s \"http://localhost:8000/fixtures/upcoming?days=14\")"
+    ]
+  }
+}

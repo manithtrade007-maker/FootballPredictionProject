@@ -1,4 +1,4 @@
-from scipy.stats import poisson
+import math
 import numpy as np
 
 
@@ -9,10 +9,15 @@ WC_AVG_GOALS_HOME = 1.36
 WC_AVG_GOALS_AWAY = 1.10
 
 
+def _poisson_pmf(k: int, lam: float) -> float:
+    """Poisson probability mass function — pure Python, no scipy needed."""
+    return (lam ** k) * math.exp(-lam) / math.factorial(k)
+
+
 def _goal_matrix(home_xg: float, away_xg: float) -> np.ndarray:
     """Build a (MAX_GOALS x MAX_GOALS) joint probability matrix."""
-    home_probs = np.array([poisson.pmf(i, home_xg) for i in range(MAX_GOALS)])
-    away_probs = np.array([poisson.pmf(i, away_xg) for i in range(MAX_GOALS)])
+    home_probs = np.array([_poisson_pmf(i, home_xg) for i in range(MAX_GOALS)])
+    away_probs = np.array([_poisson_pmf(i, away_xg) for i in range(MAX_GOALS)])
     return np.outer(home_probs, away_probs)
 
 
@@ -57,8 +62,9 @@ def predict(
     ))
     btts_no = 1.0 - btts_yes
 
-    predicted_home = int(np.argmax(matrix) // MAX_GOALS)
-    predicted_away = int(np.argmax(matrix) % MAX_GOALS)
+    # Use rounded xG as predicted score — more informative than the modal scoreline
+    predicted_home = round(home_xg)
+    predicted_away = round(away_xg)
     predicted_score = f"{predicted_home}-{predicted_away}"
 
     max_prob = max(home_win, draw, away_win)
