@@ -53,6 +53,11 @@ class ValueBetSchema(BaseModel):
     edge: float
     kelly_fraction: float
     is_value: bool
+    fixture_id: int | None = None
+    home_team: str | None = None
+    away_team: str | None = None
+    kickoff: str | None = None
+    stage: str | None = None
 
     class Config:
         from_attributes = True

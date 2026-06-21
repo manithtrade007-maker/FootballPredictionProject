@@ -182,67 +182,127 @@ async def recalculate_predictions(db: AsyncSession = Depends(get_db)):
 @router.post("/live-ratings", response_model=SyncResponse)
 async def sync_live_ratings(db: AsyncSession = Depends(get_db)):
     """
-    Derive attack/defence ratings from actual WC2026 match results already in the DB.
-    Uses a 3-game Bayesian prior so small samples don't produce extreme values.
-    Only updates teams that have played; others keep their existing ratings.
+    Build ratings using two improvements over basic goal-counting:
+
+    1. ELO RATINGS (FiveThirtyEight method): each team starts with an Elo derived
+       from their pre-tournament ratings, then each WC2026 result shifts Elo up/down
+       based on how surprising the result was vs expected (K=40, neutral venue).
+       This means beating a strong team is worth more than beating a weak one.
+
+    2. TIME-WEIGHTED GOALS (Dixon-Coles method): within a team's WC2026 matches,
+       the most recent game has full weight and older games decay by 0.65 per step.
+       A game 2 form slump matters more than a game 1 blowout.
+
+    Final rating = blend of Elo-derived + time-weighted goals.
+    Elo dominates early (1 game), WC data takes over by game 3+.
     """
     from collections import defaultdict
-    from services.predictor import predict
-    from services.value_bets import evaluate_bets
     from db.crud import save_prediction, save_value_bets
 
-    # Load all completed fixtures
+    # --- Load completed fixtures in kickoff order (Elo must be chronological) ---
     ft_result = await db.execute(
-        select(Fixture).where(Fixture.status == "FT").options(
-            selectinload(Fixture.home_team),
-            selectinload(Fixture.away_team),
-        )
+        select(Fixture)
+        .where(Fixture.status == "FT")
+        .order_by(Fixture.kickoff)
     )
     finished = [
         f for f in ft_result.scalars().all()
         if f.home_goals is not None and f.away_goals is not None
     ]
-
     if not finished:
         return SyncResponse(message="No completed fixtures yet. Run Sync Scores first.", fixtures_synced=0)
 
-    # Compute actual WC2026 average goals per team per game
     total_goals = sum(f.home_goals + f.away_goals for f in finished)
     wc_avg = total_goals / (2 * len(finished))
 
-    # Accumulate goals scored/conceded per team ID
-    stats: dict = defaultdict(lambda: {"scored": 0, "conceded": 0, "played": 0})
-    for f in finished:
-        stats[f.home_team_id]["scored"] += f.home_goals
-        stats[f.home_team_id]["conceded"] += f.away_goals
-        stats[f.home_team_id]["played"] += 1
-        stats[f.away_team_id]["scored"] += f.away_goals
-        stats[f.away_team_id]["conceded"] += f.home_goals
-        stats[f.away_team_id]["played"] += 1
-
-    # Bayesian shrinkage: 3-game prior toward WC average keeps single-game samples sane
-    PRIOR_GAMES = 3
+    # --- Load all teams, initialise Elo from existing attack/defence ratings ---
     all_teams_result = await db.execute(select(Team))
-    teams = all_teams_result.scalars().all()
+    teams: dict[int, Team] = {t.id: t for t in all_teams_result.scalars().all()}
 
+    def init_elo(attack: float, defence: float) -> float:
+        # attack > 1 = strong scorer → higher Elo
+        # defence < 1 = fewer goals conceded = better defence → higher Elo
+        raw = 1500.0 + (attack - 1.0) * 150.0 + (1.0 - defence) * 100.0
+        return max(1150.0, min(1850.0, raw))
+
+    elo: dict[int, float] = {
+        tid: init_elo(t.attack_rating, t.defence_rating)
+        for tid, t in teams.items()
+    }
+
+    # --- Walk matches chronologically, update Elo + record time-stamped goals ---
+    K = 40.0       # WC K-factor (FIFA uses 60; 40 is more conservative)
+    DECAY = 0.65   # time-decay per game back (most recent = 1.0, previous = 0.65, ...)
+
+    match_log: dict[int, list[tuple]] = defaultdict(list)  # [(kickoff, scored, conceded)]
+
+    for f in finished:
+        hid, aid = f.home_team_id, f.away_team_id
+        h_elo, a_elo = elo[hid], elo[aid]
+
+        # Expected result (neutral venue: no home advantage adjustment)
+        exp_home = 1.0 / (1.0 + 10.0 ** ((a_elo - h_elo) / 400.0))
+
+        # Actual result
+        if f.home_goals > f.away_goals:
+            actual_home = 1.0
+        elif f.home_goals == f.away_goals:
+            actual_home = 0.5
+        else:
+            actual_home = 0.0
+
+        # Update Elo symmetrically
+        delta = K * (actual_home - exp_home)
+        elo[hid] = h_elo + delta
+        elo[aid] = a_elo - delta
+
+        match_log[hid].append((f.kickoff, f.home_goals, f.away_goals))
+        match_log[aid].append((f.kickoff, f.away_goals, f.home_goals))
+
+    # --- Blend Elo-derived + time-weighted goals per team ---
     updated = 0
-    for team in teams:
-        s = stats.get(team.id)
-        if not s or s["played"] == 0:
-            continue
-        n = s["played"]
-        blended_scored = (wc_avg * PRIOR_GAMES + s["scored"]) / (PRIOR_GAMES + n)
-        blended_conceded = (wc_avg * PRIOR_GAMES + s["conceded"]) / (PRIOR_GAMES + n)
+    elo_info = []
 
-        team.attack_rating = round(max(0.3, blended_scored / wc_avg), 3)
-        team.defence_rating = round(max(0.2, blended_conceded / wc_avg), 3)
-        team.stats_source = f"wc2026_live ({n} games)"
+    for tid, team in teams.items():
+        matches = match_log.get(tid, [])
+        n = len(matches)
+
+        team_elo = elo[tid]
+        # Elo → attack/defence for Poisson model
+        elo_attack  = max(0.3, 1.0 + (team_elo - 1500.0) / 300.0)
+        elo_defence = max(0.2, 1.0 - (team_elo - 1500.0) / 500.0)
+
+        if n == 0:
+            # No WC games yet: apply Elo-derived rating only to default teams
+            if (team.stats_source or "").startswith("hardcoded"):
+                team.attack_rating  = round(elo_attack, 3)
+                team.defence_rating = round(elo_defence, 3)
+                team.stats_source   = "elo_prior (0 wc games)"
+            continue
+
+        # Time-weighted goals: most recent game weight=1, older decay by DECAY each step
+        weights   = [DECAY ** (n - 1 - i) for i in range(n)]
+        total_w   = sum(weights)
+        tw_scored    = sum(weights[i] * matches[i][1] for i in range(n)) / total_w
+        tw_conceded  = sum(weights[i] * matches[i][2] for i in range(n)) / total_w
+
+        wc_attack  = max(0.1, tw_scored   / wc_avg)
+        wc_defence = max(0.1, tw_conceded / wc_avg)
+
+        # Blend: 25% WC data after game 1, +25% per game (caps at 80%)
+        wc_weight  = min(0.80, n * 0.25)
+        elo_weight = 1.0 - wc_weight
+
+        team.attack_rating  = round(max(0.3, elo_weight * elo_attack  + wc_weight * wc_attack),  3)
+        team.defence_rating = round(max(0.2, elo_weight * elo_defence + wc_weight * wc_defence), 3)
+        team.stats_source   = f"elo+tw ({n} wc games, elo={team_elo:.0f})"
         updated += 1
-        print(f"  {team.name}: attack={team.attack_rating}, defence={team.defence_rating} [{n} WC games]")
+        elo_info.append(f"{team.name}: elo={team_elo:.0f} atk={team.attack_rating} def={team.defence_rating}")
 
     await db.flush()
+    for line in sorted(elo_info): print(" ", line)
 
-    # Re-run predictions for all fixtures with updated ratings
+    # --- Re-run predictions for all fixtures ---
     all_fixtures_result = await db.execute(
         select(Fixture).options(
             selectinload(Fixture.home_team),
@@ -275,8 +335,8 @@ async def sync_live_ratings(db: AsyncSession = Depends(get_db)):
     await db.commit()
     return SyncResponse(
         message=(
-            f"Ratings updated from WC2026 results: {updated} teams calibrated. "
-            f"WC avg: {wc_avg:.2f} goals/team/game across {len(finished)} matches."
+            f"Elo+time-weighted ratings updated: {updated} teams calibrated from "
+            f"{len(finished)} WC2026 matches. WC avg: {wc_avg:.2f} goals/team/game."
         ),
         fixtures_synced=len(finished),
     )

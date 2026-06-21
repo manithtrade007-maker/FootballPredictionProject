@@ -113,10 +113,34 @@ async def get_value_bets_for_fixture(db: AsyncSession, fixture_id: int) -> list[
     return result.scalars().all()
 
 
-async def get_all_value_bets(db: AsyncSession) -> list[ValueBet]:
+async def get_all_value_bets(db: AsyncSession) -> list[dict]:
     result = await db.execute(
         select(ValueBet)
         .where(ValueBet.is_value == True)
+        .options(
+            selectinload(ValueBet.fixture).selectinload(Fixture.home_team),
+            selectinload(ValueBet.fixture).selectinload(Fixture.away_team),
+        )
         .order_by(ValueBet.edge.desc())
     )
-    return result.scalars().all()
+    rows = result.scalars().all()
+    out = []
+    for vb in rows:
+        d = {
+            "bet_type": vb.bet_type,
+            "selection": vb.selection,
+            "our_probability": vb.our_probability,
+            "bookmaker_odds": vb.bookmaker_odds,
+            "bookmaker": vb.bookmaker,
+            "implied_probability": vb.implied_probability,
+            "edge": vb.edge,
+            "kelly_fraction": vb.kelly_fraction,
+            "is_value": vb.is_value,
+            "fixture_id": vb.fixture_id,
+            "home_team": vb.fixture.home_team.name if vb.fixture else None,
+            "away_team": vb.fixture.away_team.name if vb.fixture else None,
+            "kickoff": vb.fixture.kickoff.isoformat() if vb.fixture else None,
+            "stage": vb.fixture.stage if vb.fixture else None,
+        }
+        out.append(d)
+    return out

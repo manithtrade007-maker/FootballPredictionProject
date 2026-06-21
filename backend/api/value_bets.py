@@ -8,7 +8,6 @@ from models.schemas import ValueBetSchema
 router = APIRouter(prefix="/value-bets", tags=["value-bets"])
 
 
-@router.get("/", response_model=list[ValueBetSchema])
+@router.get("/")
 async def all_value_bets(db: AsyncSession = Depends(get_db)):
-    bets = await get_all_value_bets(db)
-    return bets
+    return await get_all_value_bets(db)

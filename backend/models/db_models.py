@@ -110,3 +110,4 @@ class ValueBet(Base):
     kelly_fraction: Mapped[float] = mapped_column(Float)
     is_value: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fixture: Mapped["Fixture"] = relationship("Fixture")
