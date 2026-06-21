@@ -10,7 +10,23 @@
       "Bash(curl -s \"http://localhost:8000/fixtures/1\")",
       "Bash(pkill -f \"uvicorn main:app\")",
       "Bash(.venv/bin/uvicorn main:app --port 8000)",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(git -C frontend status)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem status)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem/backend status)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem/frontend status)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem ls-files --others --exclude-standard)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem ls-files)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem log --oneline -5)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem diff --name-only)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem diff --cached --name-only)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem show --stat HEAD)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem/frontend log --oneline -3)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem/frontend add app/fixtures/\\\\[id\\\\]/page.tsx lib/api.ts components/AiPrediction.tsx)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem/frontend diff --cached --stat)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem/frontend commit -m ' *)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem add frontend .claude/settings.json)",
+      "Bash(git -C /Users/manith-nhep/Desktop/FootballPredictionSystem commit -m ' *)"
     ]
   }
 }

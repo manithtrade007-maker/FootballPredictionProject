@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     betfair_username: str = ""
     betfair_password: str = ""
     betfair_app_key: str = ""
+    gemini_api_key: str = ""
 
     class Config:
         env_file = ".env"
