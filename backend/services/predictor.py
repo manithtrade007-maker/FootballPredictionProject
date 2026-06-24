@@ -162,6 +162,41 @@ def _asian_handicap(matrix: np.ndarray, home_xg: float, away_xg: float) -> dict:
     return result
 
 
+def predict_from_xg(home_xg: float, away_xg: float) -> dict:
+    """Compute outcome probabilities directly from expected-goal values (for band sweep)."""
+    home_xg = max(0.3, min(home_xg, 5.0))
+    away_xg = max(0.3, min(away_xg, 5.0))
+    matrix = _goal_matrix(home_xg, away_xg)
+
+    home_win = float(np.sum(np.tril(matrix, -1)))
+    draw     = float(np.sum(np.diag(matrix)))
+    away_win = float(np.sum(np.triu(matrix, 1)))
+
+    over25 = float(1 - sum(
+        matrix[h][a]
+        for h in range(MAX_GOALS)
+        for a in range(MAX_GOALS)
+        if h + a <= 2
+    ))
+    btts_yes = float(1 - sum(
+        matrix[h][a]
+        for h in range(MAX_GOALS)
+        for a in range(MAX_GOALS)
+        if h == 0 or a == 0
+    ))
+
+    return {
+        "home_win":  home_win,
+        "draw":      draw,
+        "away_win":  away_win,
+        "over25":    over25,
+        "under25":   1.0 - over25,
+        "btts_yes":  btts_yes,
+        "btts_no":   1.0 - btts_yes,
+        "ah_data":   _asian_handicap(matrix, home_xg, away_xg),
+    }
+
+
 def build_team_ratings(stats: dict) -> tuple[float, float]:
     """
     Convert raw team stats into attack/defence ratings relative to WC average.
