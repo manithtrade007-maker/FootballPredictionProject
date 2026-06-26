@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from config import settings
 from database import init_db
 from api.fixtures import router as fixtures_router
 from api.sync import router as sync_router
@@ -9,9 +10,11 @@ from api.team_stats import router as team_stats_router
 
 app = FastAPI(title="WC2026 Betting Assistant", version="1.0.0")
 
+_origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

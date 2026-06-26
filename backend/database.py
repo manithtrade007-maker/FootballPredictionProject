@@ -19,10 +19,17 @@ async def get_db() -> AsyncSession:
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Safe migrations: add new columns if they don't exist yet
-        try:
-            await conn.execute(
-                text("ALTER TABLE teams ADD COLUMN api_football_id INTEGER DEFAULT NULL")
-            )
-        except Exception:
-            pass  # Column already exists
+        # Safe migrations — silently skip if column already exists
+        migrations = [
+            "ALTER TABLE teams ADD COLUMN api_football_id INTEGER DEFAULT NULL",
+            "ALTER TABLE value_bets ADD COLUMN verdict TEXT",
+            "ALTER TABLE value_bets ADD COLUMN action TEXT",
+            "ALTER TABLE value_bets ADD COLUMN min_edge REAL",
+            "ALTER TABLE value_bets ADD COLUMN max_edge REAL",
+            "ALTER TABLE value_bets ADD COLUMN why_line TEXT",
+        ]
+        for sql in migrations:
+            try:
+                await conn.execute(text(sql))
+            except Exception:
+                pass
